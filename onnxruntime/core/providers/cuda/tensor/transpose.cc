@@ -65,6 +65,10 @@ Status Transpose<T>::ComputeInternal(OpKernelContext* ctx) const {
   TensorShape output_shape{output_dims};
   Tensor* Y = ctx->Output(0, output_shape);
 
+  // special case when there is a dim value of 0 in the shape.
+  if (output_shape.Size() == 0)
+    return Status::OK();
+
   auto mn = TryTransposeWithCublas(*p_perm, input_shape);
   int M = std::get<0>(mn);
   int N = std::get<1>(mn);
@@ -92,10 +96,9 @@ Status Transpose<T>::ComputeInternal(OpKernelContext* ctx) const {
     return Status::OK();
   }
 
-  int device_id = GetDeviceId();
-  CudaAsyncBuffer<int64_t> input_strides(this, device_id, rank);
-  CudaAsyncBuffer<size_t> perm(this, device_id, *p_perm);
-  CudaAsyncBuffer<fast_divmod> fdm_output_strides(this, device_id, rank);
+  CudaAsyncBuffer<int64_t> input_strides(this, rank);
+  CudaAsyncBuffer<size_t> perm(this, *p_perm);
+  CudaAsyncBuffer<fast_divmod> fdm_output_strides(this, rank);
   ORT_ENFORCE(TensorPitches::Calculate(input_strides.CpuSpan(), input_dims));
   ORT_ENFORCE(CalculateFdmStrides(fdm_output_strides.CpuSpan(), output_dims));
 

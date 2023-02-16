@@ -31,6 +31,524 @@ Abstract:
 // threads.
 //
 
+#if defined(__powerpc64__)
+#pragma message "Compiling KernelAdd and Zero for powerpc"
+
+template<bool ZeroMode, bool ProcessTwoRows>
+size_t
+MlasSgemmKernel(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha
+    )
+/*++
+
+Routine Description:
+
+    This routine is an inner kernel to compute matrix multiplication for a
+    set of rows.
+
+Arguments:
+
+    A - Supplies the address of matrix A.
+
+    B - Supplies the address of matrix B. The matrix data has been packed using
+        MlasSgemmCopyPackB or MlasSgemmTransposePackB.
+
+    C - Supplies the address of matrix C.
+
+    CountK - Supplies the number of columns from matrix A and the number of rows
+        from matrix B to iterate over.
+
+    CountN - Supplies the number of columns from matrix B and matrix C to
+        iterate over.
+
+    lda - Supplies the first dimension of matrix A.
+
+    ldc - Supplies the first dimension of matrix C.
+
+    alpha - Supplies the scaler multiplier (see SGEMM definition).
+
+Return Value:
+
+    Returns the number of rows handled.
+
+--*/
+{
+    float32x4_t Row0Block0;
+    float32x4_t Row0Block1;
+    float32x4_t Row0Block2;
+    float32x4_t Row0Block3;
+
+    float32x4_t Row1Block0;
+    float32x4_t Row1Block1;
+    float32x4_t Row1Block2;
+    float32x4_t Row1Block3;
+
+#if defined(_WIN32)
+
+    if (!ProcessTwoRows) {
+        UNREFERENCED_PARAMETER(lda);
+        UNREFERENCED_PARAMETER(ldc);
+    }
+
+#endif
+
+    do {
+
+        float32x4_t BElements0;
+        float32x4_t BElements1;
+        float32x4_t BElements2;
+        float32x4_t BElements3;
+
+        float32x2_t Row0AElements;
+        float32x2_t Row1AElements;
+
+        //
+        // Clear the block accumulators.
+        //
+
+        Row0Block0 = vdupq_n_f32(0.0f);
+        Row0Block1 = vdupq_n_f32(0.0f);
+        Row0Block2 = vdupq_n_f32(0.0f);
+        Row0Block3 = vdupq_n_f32(0.0f);
+
+        if (ProcessTwoRows) {
+            Row1Block0 = vdupq_n_f32(0.0f);
+            Row1Block1 = vdupq_n_f32(0.0f);
+            Row1Block2 = vdupq_n_f32(0.0f);
+            Row1Block3 = vdupq_n_f32(0.0f);
+        }
+
+        //
+        // Compute the 16x1 or 16x2 output block.
+        //
+
+        const float* a = A;
+        size_t k = CountK;
+
+        while (k >= 2) {
+
+            Row0AElements = vld1_f32(a);
+
+            if (ProcessTwoRows) {
+                Row1AElements = vld1_f32(a + lda);
+            }
+
+            BElements0 = vld1q_f32(B + 0);
+            BElements1 = vld1q_f32(B + 4);
+            BElements2 = vld1q_f32(B + 8);
+            BElements3 = vld1q_f32(B + 12);
+
+            Row0Block0 = vmlaq_lane_f32(Row0Block0, BElements0, Row0AElements, 0);
+            Row0Block1 = vmlaq_lane_f32(Row0Block1, BElements1, Row0AElements, 0);
+            Row0Block2 = vmlaq_lane_f32(Row0Block2, BElements2, Row0AElements, 0);
+            Row0Block3 = vmlaq_lane_f32(Row0Block3, BElements3, Row0AElements, 0);
+
+            if (ProcessTwoRows) {
+                Row1Block0 = vmlaq_lane_f32(Row1Block0, BElements0, Row1AElements, 0);
+                Row1Block1 = vmlaq_lane_f32(Row1Block1, BElements1, Row1AElements, 0);
+                Row1Block2 = vmlaq_lane_f32(Row1Block2, BElements2, Row1AElements, 0);
+                Row1Block3 = vmlaq_lane_f32(Row1Block3, BElements3, Row1AElements, 0);
+            }
+
+            BElements0 = vld1q_f32(B + 16);
+            BElements1 = vld1q_f32(B + 20);
+            BElements2 = vld1q_f32(B + 24);
+            BElements3 = vld1q_f32(B + 28);
+
+            Row0Block0 = vmlaq_lane_f32(Row0Block0, BElements0, Row0AElements, 1);
+            Row0Block1 = vmlaq_lane_f32(Row0Block1, BElements1, Row0AElements, 1);
+            Row0Block2 = vmlaq_lane_f32(Row0Block2, BElements2, Row0AElements, 1);
+            Row0Block3 = vmlaq_lane_f32(Row0Block3, BElements3, Row0AElements, 1);
+
+            if (ProcessTwoRows) {
+                Row1Block0 = vmlaq_lane_f32(Row1Block0, BElements0, Row1AElements, 1);
+                Row1Block1 = vmlaq_lane_f32(Row1Block1, BElements1, Row1AElements, 1);
+                Row1Block2 = vmlaq_lane_f32(Row1Block2, BElements2, Row1AElements, 1);
+                Row1Block3 = vmlaq_lane_f32(Row1Block3, BElements3, Row1AElements, 1);
+            }
+
+            a += 2;
+            B += 32;
+            k -= 2;
+        }
+
+        if (k > 0) {
+
+            Row0AElements = vld1_dup_f32(a);
+
+            if (ProcessTwoRows) {
+                Row1AElements = vld1_dup_f32(a + lda);
+            }
+
+            BElements0 = vld1q_f32(B + 0);
+            BElements1 = vld1q_f32(B + 4);
+            BElements2 = vld1q_f32(B + 8);
+            BElements3 = vld1q_f32(B + 12);
+
+            Row0Block0 = vmlaq_lane_f32(Row0Block0, BElements0, Row0AElements, 0);
+            Row0Block1 = vmlaq_lane_f32(Row0Block1, BElements1, Row0AElements, 0);
+            Row0Block2 = vmlaq_lane_f32(Row0Block2, BElements2, Row0AElements, 0);
+            Row0Block3 = vmlaq_lane_f32(Row0Block3, BElements3, Row0AElements, 0);
+
+            if (ProcessTwoRows) {
+                Row1Block0 = vmlaq_lane_f32(Row1Block0, BElements0, Row1AElements, 0);
+                Row1Block1 = vmlaq_lane_f32(Row1Block1, BElements1, Row1AElements, 0);
+                Row1Block2 = vmlaq_lane_f32(Row1Block2, BElements2, Row1AElements, 0);
+                Row1Block3 = vmlaq_lane_f32(Row1Block3, BElements3, Row1AElements, 0);
+            }
+
+            B += 16;
+        }
+
+        //
+        // Multiply by the alpha value.
+        //
+
+        Row0Block0 = vmulq_n_f32(Row0Block0, alpha);
+        Row0Block1 = vmulq_n_f32(Row0Block1, alpha);
+        Row0Block2 = vmulq_n_f32(Row0Block2, alpha);
+        Row0Block3 = vmulq_n_f32(Row0Block3, alpha);
+
+        if (ProcessTwoRows) {
+            Row1Block0 = vmulq_n_f32(Row1Block0, alpha);
+            Row1Block1 = vmulq_n_f32(Row1Block1, alpha);
+            Row1Block2 = vmulq_n_f32(Row1Block2, alpha);
+            Row1Block3 = vmulq_n_f32(Row1Block3, alpha);
+        }
+
+        if (CountN >= 16) {
+
+            //
+            // Store the entire output block.
+            //
+
+            if (!ZeroMode) {
+                Row0Block0 = vaddq_f32(Row0Block0, vld1q_f32(C));
+                Row0Block1 = vaddq_f32(Row0Block1, vld1q_f32(C + 4));
+                Row0Block2 = vaddq_f32(Row0Block2, vld1q_f32(C + 8));
+                Row0Block3 = vaddq_f32(Row0Block3, vld1q_f32(C + 12));
+            }
+
+            vst1q_f32(C, Row0Block0);
+            vst1q_f32(C + 4, Row0Block1);
+            vst1q_f32(C + 8, Row0Block2);
+            vst1q_f32(C + 12, Row0Block3);
+
+            if (ProcessTwoRows) {
+
+                if (!ZeroMode) {
+                    Row1Block0 = vaddq_f32(Row1Block0, vld1q_f32(C + ldc));
+                    Row1Block1 = vaddq_f32(Row1Block1, vld1q_f32(C + ldc + 4));
+                    Row1Block2 = vaddq_f32(Row1Block2, vld1q_f32(C + ldc + 8));
+                    Row1Block3 = vaddq_f32(Row1Block3, vld1q_f32(C + ldc + 12));
+                }
+
+                vst1q_f32(C + ldc, Row1Block0);
+                vst1q_f32(C + ldc + 4, Row1Block1);
+                vst1q_f32(C + ldc + 8, Row1Block2);
+                vst1q_f32(C + ldc + 12, Row1Block3);
+            }
+
+        } else {
+
+            //
+            // Store the partial output block.
+            //
+
+            if ((CountN & 8) != 0) {
+
+                if (!ZeroMode) {
+                    Row0Block0 = vaddq_f32(Row0Block0, vld1q_f32(C));
+                    Row0Block1 = vaddq_f32(Row0Block1, vld1q_f32(C + 4));
+                }
+
+                vst1q_f32(C, Row0Block0);
+                vst1q_f32(C + 4, Row0Block1);
+                Row0Block0 = Row0Block2;
+                Row0Block1 = Row0Block3;
+
+                if (ProcessTwoRows) {
+
+                    if (!ZeroMode) {
+                        Row1Block0 = vaddq_f32(Row1Block0, vld1q_f32(C + ldc));
+                        Row1Block1 = vaddq_f32(Row1Block1, vld1q_f32(C + ldc + 4));
+                    }
+
+                    vst1q_f32(C + ldc, Row1Block0);
+                    vst1q_f32(C + ldc + 4, Row1Block1);
+                    Row1Block0 = Row1Block2;
+                    Row1Block1 = Row1Block3;
+                }
+
+                C += 8;
+            }
+
+            if ((CountN & 4) != 0) {
+
+                if (!ZeroMode) {
+                    Row0Block0 = vaddq_f32(Row0Block0, vld1q_f32(C));
+                }
+
+                vst1q_f32(C, Row0Block0);
+                Row0Block0 = Row0Block1;
+
+                if (ProcessTwoRows) {
+
+                    if (!ZeroMode) {
+                        Row1Block0 = vaddq_f32(Row1Block0, vld1q_f32(C + ldc));
+                    }
+
+                    vst1q_f32(C + ldc, Row1Block0);
+                    Row1Block0 = Row1Block1;
+                }
+
+                C += 4;
+            }
+
+            float32x2_t Row0Block0High;
+            float32x2_t Row0Block0Low;
+
+            float32x2_t Row1Block0High;
+            float32x2_t Row1Block0Low;
+
+            Row0Block0High = vget_high_f32(Row0Block0);
+            Row0Block0Low = vget_low_f32(Row0Block0);
+
+            if (ProcessTwoRows) {
+                Row1Block0High = vget_high_f32(Row1Block0);
+                Row1Block0Low = vget_low_f32(Row1Block0);
+            }
+
+            if ((CountN & 2) != 0) {
+
+                if (!ZeroMode) {
+                    Row0Block0Low = vadd_f32(Row0Block0Low, vld1_f32(C));
+                }
+
+                vst1_f32(C, Row0Block0Low);
+                Row0Block0Low = Row0Block0High;
+
+                if (ProcessTwoRows) {
+
+                    if (!ZeroMode) {
+                        Row1Block0Low = vadd_f32(Row1Block0Low, vld1_f32(C + ldc));
+                    }
+
+                    vst1_f32(C + ldc, Row1Block0Low);
+                    Row1Block0Low = Row1Block0High;
+                }
+
+                C += 2;
+            }
+
+            if ((CountN & 1) != 0) {
+
+                if (!ZeroMode) {
+                    Row0Block0Low = vadd_f32(Row0Block0Low, vld1_dup_f32(C));
+                }
+
+                vst1_lane_f32(C, Row0Block0Low, 0);
+
+                if (ProcessTwoRows) {
+
+                    if (!ZeroMode) {
+                        Row1Block0Low = vadd_f32(Row1Block0Low, vld1_dup_f32(C + ldc));
+                    }
+
+                    vst1_lane_f32(C + ldc, Row1Block0Low, 0);
+                }
+            }
+
+            break;
+        }
+
+        C += 16;
+        CountN -= 16;
+
+    } while (CountN > 0);
+
+    return ProcessTwoRows ? 2 : 1;
+}
+
+template<bool ZeroMode>
+size_t
+MlasSgemmKernel(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha
+    )
+/*++
+
+Routine Description:
+
+    This routine is an inner kernel to compute matrix multiplication for a
+    set of rows.
+
+Arguments:
+
+    A - Supplies the address of matrix A.
+
+    B - Supplies the address of matrix B. The matrix data has been packed using
+        MlasSgemmCopyPackB or MlasSgemmTransposePackB.
+
+    C - Supplies the address of matrix C.
+
+    CountK - Supplies the number of columns from matrix A and the number of rows
+        from matrix B to iterate over.
+
+    CountM - Supplies the maximum number of rows that can be processed for
+        matrix A and matrix C. The actual number of rows handled for this
+        invocation depends on the kernel implementation.
+
+    CountN - Supplies the number of columns from matrix B and matrix C to
+        iterate over.
+
+    lda - Supplies the first dimension of matrix A.
+
+    ldc - Supplies the first dimension of matrix C.
+
+    alpha - Supplies the scaler multiplier (see SGEMM definition).
+
+Return Value:
+
+    Returns the number of rows handled.
+
+--*/
+{
+    size_t RowsHandled;
+
+    if (CountM >= 2) {
+        RowsHandled = MlasSgemmKernel<ZeroMode, true>(A, B, C, CountK, CountN, lda, ldc, alpha);
+    } else {
+        RowsHandled = MlasSgemmKernel<ZeroMode, false>(A, B, C, CountK, CountN, lda, ldc, alpha);
+    }
+
+    return RowsHandled;
+}
+
+size_t
+MLASCALL
+MlasSgemmKernelZero(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha
+    )
+/*++
+
+Routine Description:
+
+    This routine is an inner kernel to compute matrix multiplication for a
+    set of rows.
+
+Arguments:
+
+    A - Supplies the address of matrix A.
+
+    B - Supplies the address of matrix B. The matrix data has been packed using
+        MlasSgemmCopyPackB or MlasSgemmTransposePackB.
+
+    C - Supplies the address of matrix C.
+
+    CountK - Supplies the number of columns from matrix A and the number of rows
+        from matrix B to iterate over.
+
+    CountM - Supplies the maximum number of rows that can be processed for
+        matrix A and matrix C. The actual number of rows handled for this
+        invocation depends on the kernel implementation.
+
+    CountN - Supplies the number of columns from matrix B and matrix C to
+        iterate over.
+
+    lda - Supplies the first dimension of matrix A.
+
+    ldc - Supplies the first dimension of matrix C.
+
+    alpha - Supplies the scaler multiplier (see SGEMM definition).
+
+Return Value:
+
+    Returns the number of rows handled.
+
+--*/
+{
+    return MlasSgemmKernel<true>(A, B, C, CountK, CountM, CountN, lda, ldc, alpha);
+}
+
+size_t
+MLASCALL
+MlasSgemmKernelAdd(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha
+    )
+/*++
+
+Routine Description:
+
+    This routine is an inner kernel to compute matrix multiplication for a
+    set of rows.
+
+Arguments:
+
+    A - Supplies the address of matrix A.
+
+    B - Supplies the address of matrix B. The matrix data has been packed using
+        MlasSgemmCopyPackB or MlasSgemmTransposePackB.
+
+    C - Supplies the address of matrix C.
+
+    CountK - Supplies the number of columns from matrix A and the number of rows
+        from matrix B to iterate over.
+
+    CountM - Supplies the maximum number of rows that can be processed for
+        matrix A and matrix C. The actual number of rows handled for this
+        invocation depends on the kernel implementation.
+
+    CountN - Supplies the number of columns from matrix B and matrix C to
+        iterate over.
+
+    lda - Supplies the first dimension of matrix A.
+
+    ldc - Supplies the first dimension of matrix C.
+
+    alpha - Supplies the scaler multiplier (see SGEMM definition).
+
+Return Value:
+
+    Returns the number of rows handled.
+
+--*/
+{
+    return MlasSgemmKernel<false>(A, B, C, CountK, CountM, CountN, lda, ldc, alpha);
+}
+
+#endif
+
 struct MLAS_SGEMM_WORK_BLOCK {
     CBLAS_TRANSPOSE TransA;
     CBLAS_TRANSPOSE TransB;
@@ -48,16 +566,6 @@ struct MLAS_SGEMM_WORK_BLOCK {
         float* C;
     } Segments[MLAS_MAXIMUM_THREAD_COUNT];
 };
-
-#if defined(MLAS_TARGET_AMD64_IX86)
-
-//
-// Stores a vector to build a conditional load/store mask for vmaskmovps.
-//
-
-extern "C" MLAS_DECLSPEC_ALIGN(const uint32_t MlasMaskMoveAvx[8], 8 * sizeof(float)) = { 0, 1, 2, 3, 4, 5, 6, 7 };
-
-#endif
 
 void
 MlasSgemmMultiplyBeta(
@@ -84,7 +592,7 @@ Arguments:
 
     ldc - Supplies the first dimension of matrix C.
 
-    beta - Supplies the scaler multiplier (see SGEMM definition).
+    beta - Supplies the scalar beta multiplier (see SGEMM definition).
 
 Return Value:
 
@@ -808,7 +1316,7 @@ Arguments:
     K - Supplies the number of columns of matrix A and the number of rows of
         matrix B.
 
-    alpha - Supplies the scaler alpha multiplier (see SGEMM definition).
+    alpha - Supplies the scalar alpha multiplier (see SGEMM definition).
 
     A - Supplies the address of matrix A.
 
@@ -818,7 +1326,7 @@ Arguments:
 
     ldb - Supplies the first dimension of matrix B.
 
-    beta - Supplies the scaler beta multiplier (see SGEMM definition).
+    beta - Supplies the scalar beta multiplier (see SGEMM definition).
 
     C - Supplies the address of matrix C.
 
@@ -915,6 +1423,8 @@ Return Value:
 
         for (size_t k = 0; k < K; k += CountK) {
 
+            bool ZeroMode = (k == 0 && beta == 0.0f);
+
             CountK = StrideK;
 
             if (CountK > (K - k)) {
@@ -930,17 +1440,6 @@ Return Value:
             } else {
                 MlasSgemmTransposePackB(PanelB, B + k + n * ldb, ldb, CountN, CountK);
             }
-
-            //
-            // Select the kernel routine to use for this panel.
-            //
-
-            bool UseKernelZeroRoutine = (k == 0 && beta == 0.0f);
-
-#if defined(MLAS_TARGET_AMD64_IX86)
-            PMLAS_SGEMM_KERNEL_ROUTINE SgemmKernelRoutine =
-                UseKernelZeroRoutine ? MlasPlatform.KernelZeroRoutine : MlasPlatform.KernelAddRoutine;
-#endif
 
             //
             // Step through each slice of matrix A along the M dimension.
@@ -962,9 +1461,9 @@ Return Value:
                 do {
 
 #if defined(MLAS_TARGET_AMD64_IX86)
-                    RowsHandled = SgemmKernelRoutine(a, PanelB, c, CountK, RowsRemaining, CountN, lda, ldc, alpha);
+                    RowsHandled = MlasPlatform.GemmFloatKernel(a, PanelB, c, CountK, RowsRemaining, CountN, lda, ldc, alpha, ZeroMode);
 #else
-                    if (UseKernelZeroRoutine) {
+                    if (ZeroMode) {
                         RowsHandled = MlasSgemmKernelZero(a, PanelB, c, CountK, RowsRemaining, CountN, lda, ldc, alpha);
                     } else {
                         RowsHandled = MlasSgemmKernelAdd(a, PanelB, c, CountK, RowsRemaining, CountN, lda, ldc, alpha);
@@ -1009,9 +1508,9 @@ Return Value:
                     do {
 
 #if defined(MLAS_TARGET_AMD64_IX86)
-                        RowsHandled = SgemmKernelRoutine(pa, PanelB, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha);
+                        RowsHandled = MlasPlatform.GemmFloatKernel(pa, PanelB, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode);
 #else
-                        if (UseKernelZeroRoutine) {
+                        if (ZeroMode) {
                             RowsHandled = MlasSgemmKernelZero(pa, PanelB, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha);
                         } else {
                             RowsHandled = MlasSgemmKernelAdd(pa, PanelB, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha);
@@ -1103,7 +1602,7 @@ Arguments:
     K - Supplies the number of columns of matrix A and the number of rows of
         matrix B.
 
-    alpha - Supplies the scaler alpha multiplier (see SGEMM definition).
+    alpha - Supplies the scalar alpha multiplier (see SGEMM definition).
 
     A - Supplies the address of matrix A.
 
@@ -1113,7 +1612,7 @@ Arguments:
 
     ldb - Supplies the first dimension of matrix B.
 
-    beta - Supplies the scaler beta multiplier (see SGEMM definition).
+    beta - Supplies the scalar beta multiplier (see SGEMM definition).
 
     C - Supplies the address of matrix C.
 
@@ -1239,7 +1738,7 @@ Return Value:
 
 void
 MLASCALL
-MlasSgemm(
+MlasGemm(
     CBLAS_TRANSPOSE TransA,
     CBLAS_TRANSPOSE TransB,
     size_t M,
@@ -1275,7 +1774,7 @@ Arguments:
     K - Supplies the number of columns of matrix A and the number of rows of
         matrix B.
 
-    alpha - Supplies the scaler alpha multiplier (see SGEMM definition).
+    alpha - Supplies the scalar alpha multiplier (see SGEMM definition).
 
     A - Supplies the address of matrix A.
 
@@ -1285,7 +1784,7 @@ Arguments:
 
     ldb - Supplies the first dimension of matrix B.
 
-    beta - Supplies the scaler beta multiplier (see SGEMM definition).
+    beta - Supplies the scalar beta multiplier (see SGEMM definition).
 
     C - Supplies the address of matrix C.
 
